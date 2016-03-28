@@ -1,5 +1,6 @@
 -module(markov).
--export([genTable/1]).
+%-export([genTable/1, genSentence/1]).
+-compile(export_all).
 -record(chain, {prefix="", suffix=""}).
 -record(suffix, {word="", count=0}).
 -record(reducedChain, {prefix="", suffixes=[]}).
@@ -12,7 +13,7 @@ reducedChainFactory(Prefix, Suffixes) ->
     #reducedChain{prefix=Prefix, suffixes=Suffixes}.
 
 splitString(String) ->
-    ["", ""] ++ string:tokens(String, " ").
+    ["", ""] ++ string:tokens(String, " ") ++ [undefined].
 
 genTable(String) ->
     TokenList = splitString(String),
@@ -77,3 +78,29 @@ reduceTable(Table, Acc) ->
     reduceTable(Table -- ChainsSamePrefix, Acc ++ [reducedChainFactory(Prefix, Suffixes)]).
     
     
+genSentence(Table) ->
+    genSentence(Table, ["", ""]).
+genSentence(Table, [undefined | T]) ->
+    string:join(lists:reverse(T), " ");
+genSentence(Table, [Second | [First| T]]) ->
+    Prefix = string:join([First, Second], " "),
+    Chain = hd(gatherChainsWithPrefix(Prefix, Table)),
+    Suffix = randomSuffix(Chain),
+    genSentence(Table, [Suffix | [Second | [First | T]]]).
+    
+randomSuffix(#reducedChain{prefix=_, suffixes=Suffixes}) ->
+    TotalWeight = lists:foldl(fun(#suffix{word=_, count=Count}, Sum) ->
+				   Sum + Count
+			    end, 0, Suffixes),
+    Trigger = random:uniform() * TotalWeight,
+    try 
+	lists:foldl(fun(#suffix{word=Suffix, count=Count}, TriggerValue) ->
+			    Selected = TriggerValue - Count,
+			    case Selected =< 0 of
+				true -> throw({selection, Suffix});
+				false -> Selected
+			    end
+		    end, Trigger, Suffixes)
+	catch
+	    {selection, Choice} -> Choice
+     end.
