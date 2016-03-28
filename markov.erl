@@ -1,22 +1,21 @@
 -module(markov).
--compile(export_all).
+-export([genTable/1]).
 -record(chain, {prefix="", suffix=""}).
 -record(suffix, {word="", count=0}).
 -record(reducedChain, {prefix="", suffixes=[]}).
 
-suffixFactor(Word, Count) ->
+suffixFactory(Word, Count) ->
     #suffix{word=Word, count=Count}.
-
 chainFactory(Prefix, Suffix) ->
     #chain{prefix=Prefix, suffix=Suffix}.
-
 reducedChainFactory(Prefix, Suffixes) ->
     #reducedChain{prefix=Prefix, suffixes=Suffixes}.
 
 splitString(String) ->
     ["", ""] ++ string:tokens(String, " ").
 
-genTable(TokenList) ->
+genTable(String) ->
+    TokenList = splitString(String),
     genTable(TokenList, tl(TokenList), tl(tl(TokenList)), []).
 genTable(_, _, [], Acc) ->
     reduceTable(Acc);
@@ -63,9 +62,8 @@ genSuffixes(Chains, Acc) ->
     Suffix = Chain#chain.suffix,
     SameSuffixes = gatherChainsWithSuffix(Suffix, Chains),
     NumSameSuffix = countSameSuffix(Suffix, Chains),
-    AccSuffix = suffixFactor(Suffix, NumSameSuffix),
+    AccSuffix = suffixFactory(Suffix, NumSameSuffix),
     genSuffixes(Chains -- SameSuffixes, Acc ++ [AccSuffix]).
-
 
 reduceTable(Table) ->
     reduceTable(Table, []).
