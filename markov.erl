@@ -1,9 +1,7 @@
 -module(markov).
-%-export([genTable/1, genSentence/1]).
--compile(export_all).
--record(chain, {prefix="", suffix=""}).
--record(suffix, {word="", count=0}).
--record(reducedChain, {prefix="", suffixes=[]}).
+-export([genTable/1, genSentence/1]).
+%-compile(export_all).
+-include_lib("records.hrl").
 
 suffixFactory(Word, Count) ->
     #suffix{word=Word, count=Count}.
@@ -13,7 +11,13 @@ reducedChainFactory(Prefix, Suffixes) ->
     #reducedChain{prefix=Prefix, suffixes=Suffixes}.
 
 splitString(String) ->
-    ["", ""] ++ string:tokens(String, " ") ++ [undefined].
+    Tokens = filterPrintableAscii(string:tokens(String, " ")),
+    [" ", " "] ++ Tokens ++ [undefined].
+
+filterPrintableAscii(TokenList) ->
+    lists:map(fun(Token) ->
+		     re:replace(Token, "[^ -~]", "", [global, {return, list}])
+	      end, TokenList).
 
 genTable(String) ->
     TokenList = splitString(String),
@@ -77,10 +81,9 @@ reduceTable(Table, Acc) ->
     Suffixes = genSuffixes(ChainsSamePrefix, []),
     reduceTable(Table -- ChainsSamePrefix, Acc ++ [reducedChainFactory(Prefix, Suffixes)]).
     
-    
 genSentence(Table) ->
-    genSentence(Table, ["", ""]).
-genSentence(Table, [undefined | T]) ->
+    genSentence(Table, [" ", " "]).
+genSentence(_, [undefined | T]) ->
     string:join(lists:reverse(T), " ");
 genSentence(Table, [Second | [First| T]]) ->
     Prefix = string:join([First, Second], " "),
