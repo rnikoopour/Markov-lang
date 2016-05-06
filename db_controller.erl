@@ -1,50 +1,77 @@
 -module(db_controller).
+-behaviour(gen_server).
 -compile(export_all).
--include_lib("records.hrl").
 
-start_db_controller() ->
-    spawn(?MODULE, restarter, []).
+%%% Public
+msg(Pid, get) ->
+    gen_server:call(Pid, get);
+msg(Pid, Msg) ->
+    gen_server:call(Pid, {msg, Msg}).
+amsg(Pid, Msg) ->
+    gen_server:cast(Pid, {amsg, Msg}).
 
-restarter() ->
-    process_flag(trap_exit, true),
-    Pid = spawn_link(?MODULE, controller, ["localhost", "dhbdhb", ""]),
-    register(db, Pid),
-    receive
-	{'EXIT', Pid, ok} ->
-	    ok;
-	{'EXIT', Pid, _} ->
-	    restarter()
-    end.
 
-connect(Hostname, Username, Password) ->
-    epgsql:connect(Hostname, Username, Password, [{database, "markov"}]).
+%%% Private
+stop(Pid) ->
+    gen_server:call(Pid, terminate).
 
-createDB(Host, Username, Password) ->
-    {ok, Connection} = epgsql:connect(Host, Username, Password),
-    {ok, _, _ } = epgsql:squery(Connection, "CREATE DATABASE markov"),
-    close(Connection).
-    
+connect(Host, User, Pass) ->
+    epgsql:connect(Host, User, Pass, [{database, "markov"}]).
+
 close(Connection) ->
     ok = epgsql:close(Connection).
 
-verifyDB() ->
-    Ref = make_ref(),
-    db ! {self(), Ref, verify},
-    receive
-	{Ref, ok, verified} ->
-	    {ok, verified}
-    end.
-
-controller(Hostname, Username, Password) ->
-    receive
-	{From, Ref, verify} ->
-	    case connect(Hostname, Username, Password) of
-		{ok, Connection} ->
-		    close(Connection),
-		    From ! {Ref, ok, verified};
-		{_, {_, _, _, <<"database \"markov\" does not exist">>, _}} ->
-		    createDB(Hostname, Username, Password),
-		    From ! {Ref, ok, verified}
-	    end
+createDB(Host, User, Pass) ->
+    {ok, Connection} = epgsql:connect(Host, User, Pass),
+    {ok, _, _ } = epgsql:squery(Connection, "CREATE DATABASE markov"),
+    close(Connection),
+    {ok, created}.
+    
+createTables(Host, User, Pass) ->
+    {ok, Connection} = connect(Host, User, Pass),
+    {ok, [], []} = epgsql:squery(Connection, "CREATE TABLE Prefix (id SERIAL PRIMARY KEY, prefix TEXT);"),
+    {ok, [], []} = epgsql:squery(Connection, "CREATE TABLE Suffix (id SERIAL PRIMARY KEY, suffix TEXT);"),
+    {ok, [], []} = epgsql:squery(Connection, "CREATE TABLE Chain (prefix INTEGER REFERENCES Prefix(id), suffix INTEGER REFERENCES Suffix(id), count Integer);"),
+    created.
+verifyDb(Host, User, Pass) ->
+    case connect(Host, User, Pass) of
+	{ok, Connection} ->
+	    close(Connection);
+	{_, {_, _, _, <<"database \"markov\" does not exist">>, _}} ->
+	    createDB(Host, User, Pass),
+	    createTables(Host, User, Pass)
     end,
-    controller(Hostname, Username, Password).
+    ok.
+
+%%% Server
+start_link(Host, User, Pass) ->
+    gen_server:start_link(?MODULE, {Host, User, Pass}, []).
+
+init({Host, User, Pass}) ->
+    verifyDb(Host, User,Pass),
+    {ok, {Host, User,Pass}}.
+
+handle_call({insert, _}, _From, DbInfo) ->
+    {reply, inserted, DbInfo};
+handle_call(terminate, _From, DbInfo) ->
+    {stop, normal, ok, DbInfo};
+handle_call(get, _From, DbInfo) ->
+    {reply, DbInfo, DbInfo}.
+
+handle_cast(_, DbInfo) ->
+    {noreply, DbInfo}.
+
+handle_info(Msg, DbInfo) ->
+    io:format("Not expected: ~p~n", [Msg]),
+    {noreply, DbInfo}.
+
+terminate(normal, _) ->    
+    ok.
+    
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+
+
+
+
