@@ -1,58 +1,58 @@
 -module(db_controller).
 -behaviour(gen_server).
--compile(export_all).
-
+-export([start_link/4, insert/2, stop/1]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, 
+	 terminate/2, code_change/3]).
+-include("./records.hrl").
 %%% Public
-msg(Pid, get) ->
-    gen_server:call(Pid, get);
-msg(Pid, Msg) ->
-    gen_server:call(Pid, {msg, Msg}).
-amsg(Pid, Msg) ->
-    gen_server:cast(Pid, {amsg, Msg}).
+start_link(Host, User, Pass, Db) ->
+    gen_server:start_link(?MODULE, #dbInfo{host=Host, user=User, pass=Pass, db=Db}, []).
 
-
-%%% Private
 stop(Pid) ->
     gen_server:call(Pid, terminate).
 
-connect(Host, User, Pass) ->
-    epgsql:connect(Host, User, Pass, [{database, "markov"}]).
+insert(Pid, Msg) ->
+    gen_server:call(Pid, {insert, Msg}).
+
+%%% Private
+connect(Host, User, Pass, Db) ->
+    epgsql:connect(Host, User, Pass, [{database, Db}]).
 
 close(Connection) ->
     ok = epgsql:close(Connection).
 
-createDB(Host, User, Pass) ->
+createDB(Host, User, Pass, Db) ->
     {ok, Connection} = epgsql:connect(Host, User, Pass),
-    {ok, _, _ } = epgsql:squery(Connection, "CREATE DATABASE markov"),
+    {ok, _, _ } = epgsql:squery(Connection, "CREATE DATABASE " ++ Db),
     close(Connection),
     {ok, created}.
     
-createTables(Host, User, Pass) ->
-    {ok, Connection} = connect(Host, User, Pass),
+createTables(Host, User, Pass, Db) ->
+    {ok, Connection} = connect(Host, User, Pass, Db),
     {ok, [], []} = epgsql:squery(Connection, "CREATE TABLE Prefix (id SERIAL PRIMARY KEY, prefix TEXT);"),
     {ok, [], []} = epgsql:squery(Connection, "CREATE TABLE Suffix (id SERIAL PRIMARY KEY, suffix TEXT);"),
     {ok, [], []} = epgsql:squery(Connection, "CREATE TABLE Chain (prefix INTEGER REFERENCES Prefix(id), suffix INTEGER REFERENCES Suffix(id), count Integer);"),
     created.
-verifyDb(Host, User, Pass) ->
-    case connect(Host, User, Pass) of
+
+verifyDb(Host, User, Pass, Db) ->
+    DneMsg = list_to_binary("database \"" ++ Db ++ "\" does not exist"),
+    io:format("~p ~n", [DneMsg]),
+    case connect(Host, User, Pass, Db) of
 	{ok, Connection} ->
 	    close(Connection);
-	{_, {_, _, _, <<"database \"markov\" does not exist">>, _}} ->
-	    createDB(Host, User, Pass),
-	    createTables(Host, User, Pass)
+	{_, {_, _, _, DneMsg, _}} ->
+	    createDB(Host, User, Pass, Db),
+	    createTables(Host, User, Pass, Db)
     end,
     ok.
 
 %%% Server
-start_link(Host, User, Pass) ->
-    gen_server:start_link(?MODULE, {Host, User, Pass}, []).
+init(DbInfo=#dbInfo{}) ->
+    verifyDb(DbInfo#dbInfo.host, DbInfo#dbInfo.user,DbInfo#dbInfo.pass, DbInfo#dbInfo.db),
+    {ok, DbInfo}.
 
-init({Host, User, Pass}) ->
-    verifyDb(Host, User,Pass),
-    {ok, {Host, User,Pass}}.
-
-handle_call({insert, _}, _From, DbInfo) ->
-    {reply, inserted, DbInfo};
+handle_call({insert, M}, _From, DbInfo) ->
+    {reply, {inserted, M}, DbInfo};
 handle_call(terminate, _From, DbInfo) ->
     {stop, normal, ok, DbInfo};
 handle_call(get, _From, DbInfo) ->
@@ -70,8 +70,4 @@ terminate(normal, _) ->
     
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
-
-
-
-
 
