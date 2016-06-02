@@ -15,6 +15,7 @@ rebar.lock
 
 ### Emacs ###
 # -*- mode: gitignore; -*-
+TAGS
 *~
 \#*\#
 /.emacs.desktop

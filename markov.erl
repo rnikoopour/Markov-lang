@@ -12,7 +12,7 @@ reducedChainFactory(Prefix, Suffixes) ->
 
 splitString(String) ->
     Tokens = filterPrintableAscii(string:tokens(String, " ")),
-    [" ", " "] ++ Tokens ++ [undefined].
+    [" ", " "] ++ Tokens ++ ["<<<undefined>>>"].
 
 filterPrintableAscii(TokenList) ->
     lists:map(fun(Token) ->
