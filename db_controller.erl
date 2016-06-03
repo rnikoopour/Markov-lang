@@ -95,7 +95,8 @@ updateChains({Prefix, PrefixId}, Suffixes, Connection) ->
 
 insertChain(Chain=#reducedChain{}, Connection) ->
     {prefix, Prefix} = insertPrefix(Chain#reducedChain.prefix, Connection),
-    %% [{Suffix, SuffixId}]
+    %% What Suffixes looks like:
+    %%  [{Suffix, SuffixId}]
     Suffixes = lists:map(fun (Suffix=#suffix{}) ->
 				 {suffix, SuffixInfo} = insertSuffix(Suffix#suffix.word, Connection),
 				 SuffixInfo
