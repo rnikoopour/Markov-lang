@@ -1,5 +1,5 @@
 -module(markov).
--export([genTable/2, stop/1]).
+-export([genTable/2, stop/1, genSentence/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	terminate/2, code_change/3]).
 -compile(export_all).
@@ -8,8 +8,8 @@
 
 
 %% Public
-start_link(Name) ->
-    gen_server:start_link({local, Name}, ?MODULE, {}, []).
+start_link(Name, DbPid) ->
+    gen_server:start_link({local, Name}, ?MODULE, factories:dbPidFactory(DbPid), []).
 
 stop(Pid) ->
     gen_server:call(Pid, terminate).
@@ -17,31 +17,54 @@ stop(Pid) ->
 genTable(Pid, String) ->
     gen_server:call(Pid, {genTable, String}).
 
-%% Server API
-init(State) ->
-    {ok, State}.
+genSentence(Pid) ->
+    gen_server:call(Pid, genSentence).
 
-handle_call({genTable, String}, _From, State) ->
+%% Server API
+init(DbController) ->
+    {ok, DbController}.
+
+handle_call({genTable, String}, _From, DbController) ->
     TokenList = splitString(String),
     Table = genTable(TokenList, tl(TokenList), tl(tl(TokenList)), []),
-    {reply, Table, State};
-handle_call(terminate, _From, State) ->
-    {stop, normal, ok, State}.
+    {reply, Table, DbController};
+handle_call(genSentence, _From, DbController) ->
+    Sentence = privGenSentence(DbController#dbPid.pid),
+    {reply, Sentence, DbController};
+handle_call(terminate, _From, DbController) ->
+    {stop, normal, ok, DbController}.
 
-handle_cast(_, State) ->
-    {noReply, State}.
+handle_cast(_, DbController) ->
+    {noReply, DbController}.
 
-handle_info(Msg, State) ->
+handle_info(Msg, DbController) ->
     io:format("Not expected: ~p~n", [Msg]),
-    {noreply, State}.
+    {noreply, DbController}.
 
 terminate(normal, _) ->
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, DbController, _Extra) ->
+    {ok, DbController}.
 
 %% Private API
+privGenSentence(DbPid) ->
+    genSentence([" ", " "], DbPid).
+
+getSuffixes(Prefix, DbPid) ->
+    db_controller:getSuffixes(DbPid, Prefix).
+
+genSentence(["<<<undefined>>>" | T], _) ->
+    string:join(lists:reverse(T), " ");
+genSentence([Second, First | T], DbPid) ->
+    Prefix = First ++ " " ++ Second,
+    Suffixes = lists:map(fun ({Suffix, Count}) -> 
+				 factories:suffixFactory(Suffix, Count)
+			 end, getSuffixes(Prefix, DbPid)),
+    ReducedChain = factories:reducedChainFactory(Prefix, Suffixes),
+    genSentence([randomSuffix(ReducedChain), Second, First | T], DbPid).
+
+
 splitString(String) ->
     Tokens = filterPrintableAscii(string:tokens(String, " ")),
     [" ", " "] ++ Tokens ++ ["<<<undefined>>>"].
@@ -93,12 +116,10 @@ genSuffixes([], Acc) ->
     Acc;
 genSuffixes(Chains, Acc) ->
     Chain = hd(Chains),
-
     Suffix = Chain#chain.suffix,
     SameSuffixes = gatherChainsWithSuffix(Suffix, Chains),
     NumSameSuffix = countSameSuffix(Suffix, Chains),
-    AccSuffix = factories:suffixFactory(Suffix, NumSameSuffix),
-    genSuffixes(Chains -- SameSuffixes, Acc ++ [AccSuffix]).
+    genSuffixes(Chains -- SameSuffixes, Acc ++ [factories:suffixFactory(Suffix, NumSameSuffix)]).
 
 reduceTable(Table) ->
     reduceTable(Table, []).
@@ -110,16 +131,6 @@ reduceTable(Table, Acc) ->
     ChainsSamePrefix = gatherChainsWithPrefix(Prefix, Table),
     Suffixes = genSuffixes(ChainsSamePrefix, []),
     reduceTable(Table -- ChainsSamePrefix, Acc ++ [factories:reducedChainFactory(Prefix, Suffixes)]).
-    
-genSentence(Table) ->
-    genSentence(Table, [" ", " "]).
-genSentence(_, [undefined | T]) ->
-    string:join(lists:reverse(T), " ");
-genSentence(Table, [Second | [First| T]]) ->
-    Prefix = string:join([First, Second], " "),
-    Chain = hd(gatherChainsWithPrefix(Prefix, Table)),
-    Suffix = randomSuffix(Chain),
-    genSentence(Table, [Suffix | [Second | [First | T]]]).
     
 randomSuffix(#reducedChain{prefix=_, suffixes=Suffixes}) ->
     TotalWeight = lists:foldl(fun(#suffix{word=_, count=Count}, Sum) ->

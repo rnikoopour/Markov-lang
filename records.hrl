@@ -2,3 +2,4 @@
 -record(suffix, {word="", count=0}).
 -record(reducedChain, {prefix="", suffixes=[]}).
 -record(dbInfo, {host="", user="", pass="", db=""}).
+-record(dbPid, {pid=""}).
