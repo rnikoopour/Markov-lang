@@ -1,5 +1,5 @@
 -module(factories).
--export([suffixFactory/2, chainFactory/2, reducedChainFactory/2, dbPidFactory/1]).
+-export([suffixFactory/2, chainFactory/2, reducedChainFactory/2, dbInfoFactory/4]).
 -include("./records.hrl").
 
 suffixFactory(Word, Count) ->
@@ -8,7 +8,5 @@ chainFactory(Prefix, Suffix) ->
     #chain{prefix=Prefix, suffix=Suffix}.
 reducedChainFactory(Prefix, Suffixes) ->
     #reducedChain{prefix=Prefix, suffixes=Suffixes}.
-dbPidFactory(DbPid) ->
-    #dbPid{pid=DbPid}.
-
-
+dbInfoFactory(Username, Pass, DbName, Host) ->
+    #dbInfo{host=Host, user=Username, pass=Pass, db=DbName}.

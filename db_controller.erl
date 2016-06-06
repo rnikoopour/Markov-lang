@@ -1,57 +1,31 @@
 -module(db_controller).
--behaviour(gen_server).
--export([start_link/2, start_link/4, insert/2, stop/1, getSuffixes/2]).
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, 
-	 terminate/2, code_change/3]).
+-export([insert/2, getSuffixes/2, verifyDb/1]).
 -include("./records.hrl").
 
-%%% Server
-init(DbInfo=#dbInfo{}) ->
-    verifyDb(DbInfo#dbInfo.host, DbInfo#dbInfo.user,DbInfo#dbInfo.pass, DbInfo#dbInfo.db),
-    {ok, DbInfo}.
-
-handle_call({insert, Chains}, _From, DbInfo) ->
-    {ok, Connection} = connect(DbInfo#dbInfo.host, DbInfo#dbInfo.user,DbInfo#dbInfo.pass, DbInfo#dbInfo.db),
-    Reply = lists:map(fun (Chain) ->
-			      insertChain(Chain, Connection)
-		      end, Chains),
-    close(Connection),
-    {reply, Reply, DbInfo};
-handle_call({getSuffixes, Prefix}, _From, DbInfo) ->
-    {ok, Connection} = connect(DbInfo#dbInfo.host, DbInfo#dbInfo.user,DbInfo#dbInfo.pass, DbInfo#dbInfo.db),
-    Reply = privGetSuffixes(Prefix, Connection),
-    close(Connection),
-    {reply, Reply, DbInfo};
-handle_call(terminate, _From, DbInfo) ->
-    {stop, normal, ok, DbInfo}.
-
-handle_cast(_, DbInfo) ->
-    {noreply, DbInfo}.
-
-handle_info(Msg, DbInfo) ->
-    io:format("Not expected: ~p~n", [Msg]),
-    {noreply, DbInfo}.
-
-terminate(normal, _) ->    
-    ok.
-    
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
-
 %%% Public
-start_link(User, Db) ->
-    start_link("localhost", User, "", Db).
-start_link(Host, User, Pass, Db) ->
-    gen_server:start_link({local, list_to_atom(Db)}, ?MODULE, #dbInfo{host=Host, user=User, pass=Pass, db=Db}, []).
+verifyDb(DbInfo=#dbInfo{}) ->
+    DneMsg = list_to_binary("database \"" ++ DbInfo#dbInfo.db ++ "\" does not exist"),
+    case connect(DbInfo#dbInfo.host, DbInfo#dbInfo.user, DbInfo#dbInfo.pass, DbInfo#dbInfo.db) of
+	{ok, Connection} ->
+	    close(Connection);
+	{_, {_, _, _, DneMsg, _}} ->
+	    createDB(DbInfo#dbInfo.host, DbInfo#dbInfo.user, DbInfo#dbInfo.pass, DbInfo#dbInfo.db),
+	    createTables(DbInfo#dbInfo.host, DbInfo#dbInfo.user, DbInfo#dbInfo.pass, DbInfo#dbInfo.db)
+    end,
+    ok.
 
-stop(Pid) ->
-    gen_server:call(Pid, terminate).
+insert(Chains, DbInfo=#dbInfo{}) ->
+    {ok, Connection} = connect(DbInfo#dbInfo.host, DbInfo#dbInfo.user,DbInfo#dbInfo.pass, DbInfo#dbInfo.db),
+    lists:map(fun (Chain) ->
+		      insertChain(Chain, Connection)
+	      end, Chains),
+    close(Connection).
 
-insert(Pid, Msg) ->
-    gen_server:call(Pid, {insert, Msg}).
-
-getSuffixes(Pid, Prefix) ->
-    gen_server:call(Pid, {getSuffixes, Prefix}).
+getSuffixes(Prefix, DbInfo=#dbInfo{}) ->
+    {ok, Connection} = connect(DbInfo#dbInfo.host, DbInfo#dbInfo.user,DbInfo#dbInfo.pass, DbInfo#dbInfo.db),
+    Suffixes = privGetSuffixes(Prefix, Connection),
+    close(Connection),
+    Suffixes.
 
 %%% Private
 privGetSuffixes(Prefix, Connection) ->
@@ -81,17 +55,6 @@ createTables(Host, User, Pass, Db) ->
     {ok, [], []} = epgsql:squery(Connection, "CREATE TABLE Suffix (id SERIAL PRIMARY KEY, suffixStr TEXT UNIQUE);"),
     {ok, [], []} = epgsql:squery(Connection, "CREATE TABLE Chain (prefixId INTEGER REFERENCES Prefix(id), suffixId INTEGER REFERENCES Suffix(id), count Integer);"),
     ok = close(Connection).
-
-verifyDb(Host, User, Pass, Db) ->
-    DneMsg = list_to_binary("database \"" ++ Db ++ "\" does not exist"),
-    case connect(Host, User, Pass, Db) of
-	{ok, Connection} ->
-	    close(Connection);
-	{_, {_, _, _, DneMsg, _}} ->
-	    createDB(Host, User, Pass, Db),
-	    createTables(Host, User, Pass, Db)
-    end,
-    ok.
 
 lookUpPrefixId(Prefix, Connection) ->
     {ok, _, Id} = epgsql:equery(Connection, "SELECT id FROM Prefix WHERE prefixStr = $1;", [Prefix]),
@@ -127,10 +90,10 @@ updateChains({Prefix, PrefixId}, Suffixes, Connection) ->
     lists:map(fun ({Suffix, SuffixId}) ->
 		      case lookUpChainCount(PrefixId, SuffixId, Connection) of
 			  [] ->
-			      {ok, _} = epgsql:equery(Connection, "INSERT INTO Chain VALUES ($1, $2, 1)", [PrefixId, SuffixId]),
+			      {ok, _} = epgsql:equery(Connection, "INSERT INTO Chain VALUES ($1, $2, 1);", [PrefixId, SuffixId]),
 			      {Prefix, Suffix, 1};
 			  [{Count}] ->
-			      {ok, _} = epgsql:equery(Connection, "UPDATE Chain SET count=$1 WHERE prefixid=$2 AND suffixid=$3", [Count+1, PrefixId, SuffixId]),
+			      {ok, _} = epgsql:equery(Connection, "UPDATE Chain SET count=$1 WHERE prefixid=$2 AND suffixid=$3;", [Count+1, PrefixId, SuffixId]),
 			      {Prefix, Suffix, Count+1}
 		      end
 	      end, Suffixes).
